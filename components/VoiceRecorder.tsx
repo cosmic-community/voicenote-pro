@@ -61,6 +61,7 @@ export default function VoiceRecorder({
   
   const recognitionRef = useRef<SpeechRecognition | null>(null)
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
+  const processingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
     if (typeof window !== 'undefined' && ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
@@ -89,7 +90,7 @@ export default function VoiceRecorder({
           
           for (let i = event.resultIndex; i < event.results.length; i++) {
             const result = event.results[i]
-            // Fix: Add proper null checks for result and result[0]
+            // Enhanced null safety checks
             if (result && result[0] && result[0].transcript) {
               const transcript = result[0].transcript
               if (result.isFinal) {
@@ -118,6 +119,11 @@ export default function VoiceRecorder({
           if (intervalRef.current) {
             clearInterval(intervalRef.current)
           }
+          
+          // Auto-save if transcript exists
+          if (transcript.trim() && recordingState !== 'processing') {
+            handleStopRecording()
+          }
         }
         
         recognitionRef.current = recognition
@@ -128,8 +134,11 @@ export default function VoiceRecorder({
       if (intervalRef.current) {
         clearInterval(intervalRef.current)
       }
+      if (processingTimeoutRef.current) {
+        clearTimeout(processingTimeoutRef.current)
+      }
     }
-  }, [onStateChange])
+  }, [onStateChange, transcript, recordingState])
 
   const startRecording = () => {
     if (!recognitionRef.current) {
@@ -146,42 +155,71 @@ export default function VoiceRecorder({
   const stopRecording = () => {
     if (recognitionRef.current && isListening) {
       recognitionRef.current.stop()
-      onStateChange('processing')
     }
   }
 
-  const saveNote = async () => {
+  const handleStopRecording = async () => {
     if (!transcript.trim()) {
       setError('No transcript to save.')
+      onStateChange('error')
       return
     }
 
     try {
       onStateChange('processing')
       
-      // Generate title from content
-      const titleResponse = await fetch('/api/ai/title', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: transcript }),
-      })
+      // Set processing timeout (30 seconds)
+      processingTimeoutRef.current = setTimeout(() => {
+        setError('Processing timed out. Please try again.')
+        onStateChange('error')
+      }, 30000)
+
+      // Generate fallback title from transcript
+      const fallbackTitle = transcript.slice(0, 50).trim() + (transcript.length > 50 ? '...' : '')
+      let generatedTitle = fallbackTitle
       
-      const titleData = await titleResponse.json()
-      const title = titleData.success ? titleData.title : 'Voice Note'
+      // Try to generate AI title (with fallback)
+      try {
+        const titleResponse = await fetch('/api/ai/title', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: transcript }),
+        })
+        
+        if (titleResponse.ok) {
+          const titleData = await titleResponse.json()
+          if (titleData.success && titleData.title) {
+            generatedTitle = titleData.title
+          }
+        }
+      } catch (titleError) {
+        console.warn('Title generation failed, using fallback:', titleError)
+        // Continue with fallback title
+      }
       
-      // Generate summary
-      const summaryResponse = await fetch('/api/ai/summary', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: transcript }),
-      })
-      
-      const summaryData = await summaryResponse.json()
-      const summary = summaryData.success ? summaryData.summary : ''
+      // Try to generate AI summary (with fallback)
+      let summary = ''
+      try {
+        const summaryResponse = await fetch('/api/ai/summary', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: transcript }),
+        })
+        
+        if (summaryResponse.ok) {
+          const summaryData = await summaryResponse.json()
+          if (summaryData.success) {
+            summary = summaryData.summary
+          }
+        }
+      } catch (summaryError) {
+        console.warn('Summary generation failed:', summaryError)
+        // Continue without summary
+      }
       
       // Create note data
       const noteData: CreateNoteData = {
-        title,
+        title: generatedTitle,
         content: transcript,
         transcription_status: 'Completed',
         word_count: transcript.split(/\s+/).filter(word => word.length > 0).length,
@@ -198,16 +236,26 @@ export default function VoiceRecorder({
         noteData.tag_ids = selectedTags
       }
       
-      // Save note
+      // Save note with proper error handling
       const response = await fetch('/api/notes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(noteData),
       })
       
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`HTTP ${response.status}: ${errorText}`)
+      }
+      
       const data = await response.json()
       
       if (data.success) {
+        // Clear timeout
+        if (processingTimeoutRef.current) {
+          clearTimeout(processingTimeoutRef.current)
+        }
+        
         onNoteCreated(data.note)
         
         // Reset form
@@ -215,6 +263,7 @@ export default function VoiceRecorder({
         setRecordingDuration(0)
         setSelectedCollection('')
         setSelectedTags([])
+        setError('')
         onStateChange('completed')
         
         setTimeout(() => {
@@ -225,7 +274,27 @@ export default function VoiceRecorder({
       }
     } catch (error) {
       console.error('Error saving note:', error)
-      setError('Failed to save note. Please try again.')
+      
+      // Clear timeout
+      if (processingTimeoutRef.current) {
+        clearTimeout(processingTimeoutRef.current)
+      }
+      
+      // Provide specific error messages
+      if (error instanceof Error) {
+        if (error.message.includes('timeout') || error.message.includes('aborted')) {
+          setError('Request timed out. Please check your connection and try again.')
+        } else if (error.message.includes('500')) {
+          setError('Server error occurred. Please try again in a moment.')
+        } else if (error.message.includes('400')) {
+          setError('Invalid data. Please check your input and try again.')
+        } else {
+          setError(`Failed to save: ${error.message}`)
+        }
+      } else {
+        setError('Failed to save recording. Please try again.')
+      }
+      
       onStateChange('error')
     }
   }
@@ -234,7 +303,25 @@ export default function VoiceRecorder({
     setTranscript('')
     setRecordingDuration(0)
     setError('')
+    setSelectedCollection('')
+    setSelectedTags([])
     onStateChange('idle')
+  }
+
+  const cancelProcessing = () => {
+    if (processingTimeoutRef.current) {
+      clearTimeout(processingTimeoutRef.current)
+    }
+    setError('')
+    onStateChange('idle')
+  }
+
+  const retryProcessing = () => {
+    if (transcript.trim()) {
+      handleStopRecording()
+    } else {
+      setError('No transcript to retry. Please record again.')
+    }
   }
 
   const formatDuration = (seconds: number) => {
@@ -301,9 +388,17 @@ export default function VoiceRecorder({
           </p>
         )}
         {recordingState === 'processing' && (
-          <p className="text-warning-600 font-medium">
-            ⚙️ Processing and saving...
-          </p>
+          <div className="space-y-2">
+            <p className="text-warning-600 font-medium">
+              ⚙️ Processing and saving...
+            </p>
+            <button
+              onClick={cancelProcessing}
+              className="text-sm text-red-500 underline hover:text-red-700"
+            >
+              Cancel
+            </button>
+          </div>
         )}
         {recordingState === 'completed' && (
           <p className="text-success-600 font-medium">
@@ -311,9 +406,25 @@ export default function VoiceRecorder({
           </p>
         )}
         {recordingState === 'error' && error && (
-          <p className="text-danger-600 font-medium">
-            ❌ {error}
-          </p>
+          <div className="space-y-2">
+            <p className="text-danger-600 font-medium">
+              ❌ {error}
+            </p>
+            <div className="flex justify-center space-x-4">
+              <button
+                onClick={retryProcessing}
+                className="text-sm text-primary-600 underline hover:text-primary-800"
+              >
+                Retry
+              </button>
+              <button
+                onClick={clearTranscript}
+                className="text-sm text-gray-600 underline hover:text-gray-800"
+              >
+                Start Over
+              </button>
+            </div>
+          </div>
         )}
       </div>
 
@@ -336,7 +447,8 @@ export default function VoiceRecorder({
                 <select
                   value={selectedCollection}
                   onChange={(e) => setSelectedCollection(e.target.value)}
-                  className="input"
+                  disabled={recordingState === 'processing'}
+                  className="input disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <option value="">No collection</option>
                   {collections.map((collection) => (
@@ -360,6 +472,7 @@ export default function VoiceRecorder({
                       <input
                         type="checkbox"
                         checked={selectedTags.includes(tag.id)}
+                        disabled={recordingState === 'processing'}
                         onChange={(e) => {
                           if (e.target.checked) {
                             setSelectedTags(prev => [...prev, tag.id])
@@ -367,7 +480,7 @@ export default function VoiceRecorder({
                             setSelectedTags(prev => prev.filter(id => id !== tag.id))
                           }
                         }}
-                        className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                        className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 disabled:opacity-50"
                       />
                       <span className="text-sm text-gray-700">
                         {tag.metadata?.name || tag.title}
@@ -382,9 +495,9 @@ export default function VoiceRecorder({
           {/* Action Buttons */}
           <div className="flex space-x-4">
             <button
-              onClick={saveNote}
+              onClick={handleStopRecording}
               disabled={recordingState === 'processing'}
-              className="flex-1 btn-primary disabled:opacity-50"
+              className="flex-1 btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {recordingState === 'processing' ? (
                 <span className="flex items-center justify-center">
@@ -397,7 +510,8 @@ export default function VoiceRecorder({
             </button>
             <button
               onClick={clearTranscript}
-              className="btn-secondary"
+              disabled={recordingState === 'processing'}
+              className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Clear
             </button>

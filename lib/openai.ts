@@ -77,6 +77,10 @@ export async function generateNoteSummary(content: string): Promise<string> {
   try {
     const client = getOpenAIClient();
     
+    // Add timeout and error handling
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    
     const response = await client.chat.completions.create({
       model: 'gpt-3.5-turbo',
       messages: [
@@ -91,13 +95,21 @@ export async function generateNoteSummary(content: string): Promise<string> {
       ],
       max_tokens: 150,
       temperature: 0.3,
+    }, {
+      signal: controller.signal
     });
 
+    clearTimeout(timeoutId);
     return response.choices[0]?.message?.content || 'Unable to generate summary.';
   } catch (error) {
     console.error('Error generating note summary:', error);
-    if (error instanceof Error && error.message.includes('OPENAI_API_KEY')) {
-      return 'OpenAI API key is not configured.';
+    if (error instanceof Error) {
+      if (error.message.includes('OPENAI_API_KEY')) {
+        return 'OpenAI API key is not configured.';
+      }
+      if (error.name === 'AbortError') {
+        return 'Summary generation timed out.';
+      }
     }
     return 'Summary generation failed.';
   }
@@ -107,12 +119,21 @@ export async function generateNoteTitle(content: string): Promise<string> {
   try {
     const client = getOpenAIClient();
     
+    // Add input validation
+    if (!content || content.trim().length === 0) {
+      return 'New Voice Note';
+    }
+    
+    // Add timeout handling
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+    
     const response = await client.chat.completions.create({
       model: 'gpt-3.5-turbo',
       messages: [
         {
           role: 'system',
-          content: 'You are a helpful assistant that creates concise, descriptive titles for voice notes. Create a short title (2-6 words) that captures the main topic or theme.',
+          content: 'You are a helpful assistant that creates concise, descriptive titles for voice notes. Create a short title (2-6 words) that captures the main topic or theme. Only return the title, nothing else.',
         },
         {
           role: 'user',
@@ -121,13 +142,34 @@ export async function generateNoteTitle(content: string): Promise<string> {
       ],
       max_tokens: 20,
       temperature: 0.3,
+    }, {
+      signal: controller.signal
     });
 
-    return response.choices[0]?.message?.content || 'New Voice Note';
+    clearTimeout(timeoutId);
+    
+    const title = response.choices[0]?.message?.content?.trim();
+    
+    // Validate and clean the generated title
+    if (!title || title.length === 0) {
+      return 'New Voice Note';
+    }
+    
+    // Remove quotes if present and limit length
+    const cleanTitle = title.replace(/^["']|["']$/g, '').slice(0, 100);
+    return cleanTitle || 'New Voice Note';
+    
   } catch (error) {
     console.error('Error generating note title:', error);
-    if (error instanceof Error && error.message.includes('OPENAI_API_KEY')) {
-      return 'New Voice Note';
+    if (error instanceof Error) {
+      if (error.message.includes('OPENAI_API_KEY')) {
+        console.warn('OpenAI API key not configured, using fallback title');
+        return 'New Voice Note';
+      }
+      if (error.name === 'AbortError') {
+        console.warn('Title generation timed out, using fallback');
+        return 'New Voice Note';
+      }
     }
     return 'New Voice Note';
   }
