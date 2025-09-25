@@ -122,7 +122,7 @@ export default function NoteCard({
   }
 
   const getTagColorClass = (color?: { key: string; value: string }) => {
-    if (!color) return 'color-blue'
+    if (!color || !color.key) return 'color-blue'
     return `color-${color.key}`
   }
 
@@ -263,7 +263,7 @@ export default function NoteCard({
         <div className="flex space-x-2 pt-4 border-t border-gray-200">
           <button
             onClick={handleSave}
-            className="btn-primary text-sm"
+            className="flex-1 btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Save Changes
           </button>
@@ -274,7 +274,7 @@ export default function NoteCard({
               setEditContent(note.metadata?.content || '')
               setEditSummary(note.metadata?.summary || '')
             }}
-            className="btn-secondary text-sm"
+            className="btn-secondary"
           >
             Cancel
           </button>
