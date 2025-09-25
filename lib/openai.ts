@@ -1,9 +1,24 @@
 import OpenAI from 'openai';
 import { Note, ChatMessage } from '@/types';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Lazy initialization of OpenAI client
+let openai: OpenAI | null = null;
+
+function getOpenAIClient(): OpenAI {
+  if (!openai) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    
+    if (!apiKey) {
+      throw new Error('OPENAI_API_KEY environment variable is missing or empty');
+    }
+    
+    openai = new OpenAI({
+      apiKey,
+    });
+  }
+  
+  return openai;
+}
 
 export async function generateChatResponse(
   messages: ChatMessage[],
@@ -11,6 +26,8 @@ export async function generateChatResponse(
   context?: string
 ): Promise<string> {
   try {
+    const client = getOpenAIClient();
+    
     // Build context from notes
     const notesContext = notes.map(note => {
       const title = note.metadata?.title || note.title;
@@ -39,7 +56,7 @@ Please provide helpful, concise responses based on the user's notes. If asked ab
       }))
     ];
 
-    const response = await openai.chat.completions.create({
+    const response = await client.chat.completions.create({
       model: 'gpt-3.5-turbo',
       messages: openaiMessages,
       max_tokens: 500,
@@ -49,13 +66,18 @@ Please provide helpful, concise responses based on the user's notes. If asked ab
     return response.choices[0]?.message?.content || 'I apologize, but I was unable to generate a response. Please try again.';
   } catch (error) {
     console.error('Error generating chat response:', error);
+    if (error instanceof Error && error.message.includes('OPENAI_API_KEY')) {
+      return 'OpenAI API key is not configured. Please add your API key to continue using AI features.';
+    }
     return 'I encountered an error while processing your request. Please try again later.';
   }
 }
 
 export async function generateNoteSummary(content: string): Promise<string> {
   try {
-    const response = await openai.chat.completions.create({
+    const client = getOpenAIClient();
+    
+    const response = await client.chat.completions.create({
       model: 'gpt-3.5-turbo',
       messages: [
         {
@@ -74,13 +96,18 @@ export async function generateNoteSummary(content: string): Promise<string> {
     return response.choices[0]?.message?.content || 'Unable to generate summary.';
   } catch (error) {
     console.error('Error generating note summary:', error);
+    if (error instanceof Error && error.message.includes('OPENAI_API_KEY')) {
+      return 'OpenAI API key is not configured.';
+    }
     return 'Summary generation failed.';
   }
 }
 
 export async function generateNoteTitle(content: string): Promise<string> {
   try {
-    const response = await openai.chat.completions.create({
+    const client = getOpenAIClient();
+    
+    const response = await client.chat.completions.create({
       model: 'gpt-3.5-turbo',
       messages: [
         {
@@ -99,6 +126,9 @@ export async function generateNoteTitle(content: string): Promise<string> {
     return response.choices[0]?.message?.content || 'New Voice Note';
   } catch (error) {
     console.error('Error generating note title:', error);
+    if (error instanceof Error && error.message.includes('OPENAI_API_KEY')) {
+      return 'New Voice Note';
+    }
     return 'New Voice Note';
   }
 }
