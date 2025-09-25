@@ -16,16 +16,12 @@ export interface ColorOption {
   value: string;
 }
 
-// Note object with complete metadata structure
+// Note object with complete metadata structure (no audio file)
 export interface Note extends CosmicObject {
   type: 'notes';
   metadata: {
     title?: string;
     content?: string;
-    audio_file?: {
-      url: string;
-      name: string;
-    };
     transcription_status?: TranscriptionStatus;
     collection?: Collection;
     tags?: Tag[];
@@ -92,7 +88,7 @@ export interface CosmicResponse<T> {
   skip: number;
 }
 
-// Form data types
+// Form data types (no audio file handling)
 export interface CreateNoteData {
   title: string;
   content: string;

@@ -119,11 +119,6 @@ export default function VoiceRecorder({
           if (intervalRef.current) {
             clearInterval(intervalRef.current)
           }
-          
-          // Auto-save if transcript exists
-          if (transcript.trim() && recordingState !== 'processing') {
-            handleStopRecording()
-          }
         }
         
         recognitionRef.current = recognition
@@ -138,7 +133,7 @@ export default function VoiceRecorder({
         clearTimeout(processingTimeoutRef.current)
       }
     }
-  }, [onStateChange, transcript, recordingState])
+  }, [onStateChange])
 
   const startRecording = () => {
     if (!recognitionRef.current) {
@@ -155,10 +150,19 @@ export default function VoiceRecorder({
   const stopRecording = () => {
     if (recognitionRef.current && isListening) {
       recognitionRef.current.stop()
+      // Process the transcript immediately when stop is clicked
+      setTimeout(() => {
+        if (transcript.trim()) {
+          handleSaveNote()
+        } else {
+          setError('No transcript to save. Please try recording again.')
+          onStateChange('error')
+        }
+      }, 500) // Small delay to ensure onend fires and transcript is final
     }
   }
 
-  const handleStopRecording = async () => {
+  const handleSaveNote = async () => {
     if (!transcript.trim()) {
       setError('No transcript to save.')
       onStateChange('error')
@@ -217,7 +221,7 @@ export default function VoiceRecorder({
         // Continue without summary
       }
       
-      // Create note data
+      // Create note data (no audio file, transcription only)
       const noteData: CreateNoteData = {
         title: generatedTitle,
         content: transcript,
@@ -318,7 +322,7 @@ export default function VoiceRecorder({
 
   const retryProcessing = () => {
     if (transcript.trim()) {
-      handleStopRecording()
+      handleSaveNote()
     } else {
       setError('No transcript to retry. Please record again.')
     }
@@ -337,7 +341,7 @@ export default function VoiceRecorder({
           Create Voice Note
         </h2>
         <p className="text-gray-600">
-          Click the button below to start recording your voice note
+          Record your voice and get instant transcription
         </p>
       </div>
 
@@ -363,7 +367,7 @@ export default function VoiceRecorder({
           ) : (
             <button
               onClick={stopRecording}
-              className="w-24 h-24 rounded-full bg-danger-600 hover:bg-danger-700 text-white text-2xl recording-pulse shadow-lg"
+              className="w-24 h-24 rounded-full bg-danger-600 hover:bg-danger-700 text-white text-2xl recording-pulse shadow-lg transition-colors duration-200"
             >
               ⏹️
             </button>
@@ -384,7 +388,7 @@ export default function VoiceRecorder({
         )}
         {recordingState === 'recording' && (
           <p className="text-primary-600 font-medium">
-            🔴 Recording... Speak clearly
+            🔴 Recording... Click stop when finished
           </p>
         )}
         {recordingState === 'processing' && (
@@ -493,29 +497,31 @@ export default function VoiceRecorder({
           </div>
 
           {/* Action Buttons */}
-          <div className="flex space-x-4">
-            <button
-              onClick={handleStopRecording}
-              disabled={recordingState === 'processing'}
-              className="flex-1 btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {recordingState === 'processing' ? (
-                <span className="flex items-center justify-center">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                  Saving...
-                </span>
-              ) : (
-                'Save Note'
-              )}
-            </button>
-            <button
-              onClick={clearTranscript}
-              disabled={recordingState === 'processing'}
-              className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Clear
-            </button>
-          </div>
+          {!isListening && (
+            <div className="flex space-x-4">
+              <button
+                onClick={handleSaveNote}
+                disabled={recordingState === 'processing'}
+                className="flex-1 btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {recordingState === 'processing' ? (
+                  <span className="flex items-center justify-center">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Saving...
+                  </span>
+                ) : (
+                  'Save Note'
+                )}
+              </button>
+              <button
+                onClick={clearTranscript}
+                disabled={recordingState === 'processing'}
+                className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Clear
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

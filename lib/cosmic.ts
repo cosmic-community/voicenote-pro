@@ -59,7 +59,7 @@ export async function getNoteBySlug(slug: string): Promise<Note | null> {
   }
 }
 
-// Create a new note
+// Create a new note (transcription only, no audio file)
 export async function createNote(noteData: CreateNoteData): Promise<Note> {
   try {
     const metadata: Record<string, any> = {
