@@ -3,6 +3,40 @@
 import { useState, useRef, useEffect } from 'react'
 import { RecordingState, Collection, Tag, CreateNoteData, Note } from '@/types'
 
+// Web Speech API type definitions
+interface SpeechRecognitionEvent extends Event {
+  resultIndex: number;
+  results: SpeechRecognitionResultList;
+}
+
+interface SpeechRecognitionErrorEvent extends Event {
+  error: string;
+  message?: string;
+}
+
+interface SpeechRecognition extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onstart: ((this: SpeechRecognition, ev: Event) => any) | null;
+  onresult: ((this: SpeechRecognition, ev: SpeechRecognitionEvent) => any) | null;
+  onerror: ((this: SpeechRecognition, ev: SpeechRecognitionErrorEvent) => any) | null;
+  onend: ((this: SpeechRecognition, ev: Event) => any) | null;
+  start(): void;
+  stop(): void;
+}
+
+declare global {
+  interface Window {
+    SpeechRecognition?: {
+      new (): SpeechRecognition;
+    };
+    webkitSpeechRecognition?: {
+      new (): SpeechRecognition;
+    };
+  }
+}
+
 interface VoiceRecorderProps {
   recordingState: RecordingState
   onStateChange: (state: RecordingState) => void
@@ -29,59 +63,61 @@ export default function VoiceRecorder({
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && 'webkitSpeechRecognition' in window) {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
-      const recognition = new SpeechRecognition()
-      
-      recognition.continuous = true
-      recognition.interimResults = true
-      recognition.lang = 'en-US'
-      
-      recognition.onstart = () => {
-        setIsListening(true)
-        setError('')
-        onStateChange('recording')
+    if (typeof window !== 'undefined' && ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+      const SpeechRecognitionConstructor = window.SpeechRecognition || window.webkitSpeechRecognition
+      if (SpeechRecognitionConstructor) {
+        const recognition = new SpeechRecognitionConstructor()
         
-        // Start duration timer
-        const startTime = Date.now()
-        intervalRef.current = setInterval(() => {
-          setRecordingDuration(Math.floor((Date.now() - startTime) / 1000))
-        }, 1000)
-      }
-      
-      recognition.onresult = (event) => {
-        let finalTranscript = ''
+        recognition.continuous = true
+        recognition.interimResults = true
+        recognition.lang = 'en-US'
         
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript
-          if (event.results[i].isFinal) {
-            finalTranscript += transcript
+        recognition.onstart = () => {
+          setIsListening(true)
+          setError('')
+          onStateChange('recording')
+          
+          // Start duration timer
+          const startTime = Date.now()
+          intervalRef.current = setInterval(() => {
+            setRecordingDuration(Math.floor((Date.now() - startTime) / 1000))
+          }, 1000)
+        }
+        
+        recognition.onresult = (event: SpeechRecognitionEvent) => {
+          let finalTranscript = ''
+          
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const transcript = event.results[i][0].transcript
+            if (event.results[i].isFinal) {
+              finalTranscript += transcript
+            }
+          }
+          
+          if (finalTranscript) {
+            setTranscript(prev => prev + finalTranscript)
           }
         }
         
-        if (finalTranscript) {
-          setTranscript(prev => prev + finalTranscript)
+        recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+          console.error('Speech recognition error:', event.error)
+          setError('Speech recognition failed. Please try again.')
+          setIsListening(false)
+          onStateChange('error')
+          if (intervalRef.current) {
+            clearInterval(intervalRef.current)
+          }
         }
-      }
-      
-      recognition.onerror = (event) => {
-        console.error('Speech recognition error:', event.error)
-        setError('Speech recognition failed. Please try again.')
-        setIsListening(false)
-        onStateChange('error')
-        if (intervalRef.current) {
-          clearInterval(intervalRef.current)
+        
+        recognition.onend = () => {
+          setIsListening(false)
+          if (intervalRef.current) {
+            clearInterval(intervalRef.current)
+          }
         }
+        
+        recognitionRef.current = recognition
       }
-      
-      recognition.onend = () => {
-        setIsListening(false)
-        if (intervalRef.current) {
-          clearInterval(intervalRef.current)
-        }
-      }
-      
-      recognitionRef.current = recognition
     }
 
     return () => {
