@@ -89,7 +89,8 @@ export default function VoiceRecorder({
           
           for (let i = event.resultIndex; i < event.results.length; i++) {
             const result = event.results[i]
-            if (result && result[0]) {
+            // Fix: Add proper null checks for result and result[0]
+            if (result && result[0] && result[0].transcript) {
               const transcript = result[0].transcript
               if (result.isFinal) {
                 finalTranscript += transcript
