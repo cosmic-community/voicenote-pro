@@ -5,10 +5,20 @@ import { useState } from 'react'
 
 export default function Header() {
   const [showMenu, setShowMenu] = useState(false)
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
 
-  const handleLogout = () => {
-    clearAccessVerification()
-    window.location.reload()
+  const handleLogout = async () => {
+    try {
+      setIsLoggingOut(true)
+      clearAccessVerification()
+      // Add small delay to prevent flash of content
+      await new Promise(resolve => setTimeout(resolve, 100))
+      window.location.reload()
+    } catch (error) {
+      console.error('Error during logout:', error)
+      // Force reload even if there's an error
+      window.location.reload()
+    }
   }
 
   return (
@@ -35,9 +45,10 @@ export default function Header() {
               </span>
               <button
                 onClick={handleLogout}
-                className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                disabled={isLoggingOut}
+                className="text-sm text-gray-600 hover:text-gray-900 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Logout
+                {isLoggingOut ? 'Logging out...' : 'Logout'}
               </button>
             </div>
 
@@ -46,6 +57,7 @@ export default function Header() {
               <button
                 onClick={() => setShowMenu(!showMenu)}
                 className="text-gray-600 hover:text-gray-900"
+                aria-label="Toggle menu"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
@@ -64,9 +76,10 @@ export default function Header() {
               </p>
               <button
                 onClick={handleLogout}
-                className="block w-full text-left px-4 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                disabled={isLoggingOut}
+                className="block w-full text-left px-4 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Logout
+                {isLoggingOut ? 'Logging out...' : 'Logout'}
               </button>
             </div>
           </div>

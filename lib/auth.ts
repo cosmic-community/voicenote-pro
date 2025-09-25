@@ -4,6 +4,12 @@ const ACCESS_CODE_KEY = 'voicenote_access_verified';
 const VERIFICATION_DURATION = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 
 export function verifyAccessCode(code: string): boolean {
+  // This function should only be used server-side
+  if (typeof window !== 'undefined') {
+    console.warn('verifyAccessCode should not be called on client side');
+    return false;
+  }
+  
   const expectedCode = process.env.ACCESS_CODE;
   
   if (!expectedCode) {
@@ -17,12 +23,16 @@ export function verifyAccessCode(code: string): boolean {
 export function setAccessVerification(): void {
   if (typeof window === 'undefined') return;
   
-  const verification: AccessVerification = {
-    isAuthenticated: true,
-    timestamp: Date.now(),
-  };
-  
-  localStorage.setItem(ACCESS_CODE_KEY, JSON.stringify(verification));
+  try {
+    const verification: AccessVerification = {
+      isAuthenticated: true,
+      timestamp: Date.now(),
+    };
+    
+    localStorage.setItem(ACCESS_CODE_KEY, JSON.stringify(verification));
+  } catch (error) {
+    console.error('Error setting access verification:', error);
+  }
 }
 
 export function getAccessVerification(): AccessVerification | null {
@@ -33,6 +43,12 @@ export function getAccessVerification(): AccessVerification | null {
     if (!stored) return null;
     
     const verification: AccessVerification = JSON.parse(stored);
+    
+    // Validate the verification object structure
+    if (!verification || typeof verification.isAuthenticated !== 'boolean' || typeof verification.timestamp !== 'number') {
+      localStorage.removeItem(ACCESS_CODE_KEY);
+      return null;
+    }
     
     // Check if verification has expired
     if (Date.now() - verification.timestamp > VERIFICATION_DURATION) {
@@ -50,10 +66,20 @@ export function getAccessVerification(): AccessVerification | null {
 
 export function clearAccessVerification(): void {
   if (typeof window === 'undefined') return;
-  localStorage.removeItem(ACCESS_CODE_KEY);
+  
+  try {
+    localStorage.removeItem(ACCESS_CODE_KEY);
+  } catch (error) {
+    console.error('Error clearing access verification:', error);
+  }
 }
 
 export function isAuthenticated(): boolean {
-  const verification = getAccessVerification();
-  return verification?.isAuthenticated || false;
+  try {
+    const verification = getAccessVerification();
+    return verification?.isAuthenticated || false;
+  } catch (error) {
+    console.error('Error checking authentication:', error);
+    return false;
+  }
 }

@@ -33,7 +33,7 @@ export default function RootLayout({
             {children}
           </div>
         </AccessGuard>
-        <CosmicBadge bucketSlug={bucketSlug} />
+        {bucketSlug && <CosmicBadge bucketSlug={bucketSlug} />}
       </body>
     </html>
   )

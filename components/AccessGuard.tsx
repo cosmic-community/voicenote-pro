@@ -15,10 +15,19 @@ export default function AccessGuard({ children }: AccessGuardProps) {
   const [isVerifying, setIsVerifying] = useState(false)
 
   useEffect(() => {
-    const checkAuth = () => {
-      const authenticated = isAuthenticated()
-      setIsAuthed(authenticated)
-      setIsLoading(false)
+    const checkAuth = async () => {
+      try {
+        // Add small delay to prevent hydration mismatch
+        await new Promise(resolve => setTimeout(resolve, 100))
+        
+        const authenticated = isAuthenticated()
+        setIsAuthed(authenticated)
+      } catch (error) {
+        console.error('Error checking authentication:', error)
+        setIsAuthed(false)
+      } finally {
+        setIsLoading(false)
+      }
     }
 
     checkAuth()
@@ -35,22 +44,37 @@ export default function AccessGuard({ children }: AccessGuardProps) {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ accessCode }),
+        body: JSON.stringify({ accessCode: accessCode.trim() }),
       })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Network error' }))
+        throw new Error(errorData.error || 'Verification failed')
+      }
 
       const data = await response.json()
 
       if (data.success) {
         setAccessVerification()
         setIsAuthed(true)
+        setAccessCode('') // Clear the input
       } else {
-        setError('Invalid access code. Please try again.')
+        setError(data.error || 'Invalid access code. Please try again.')
       }
     } catch (error) {
       console.error('Verification error:', error)
-      setError('Verification failed. Please try again.')
+      const errorMessage = error instanceof Error ? error.message : 'Verification failed. Please try again.'
+      setError(errorMessage)
     } finally {
       setIsVerifying(false)
+    }
+  }
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setAccessCode(e.target.value)
+    // Clear error when user starts typing
+    if (error) {
+      setError('')
     }
   }
 
@@ -84,16 +108,17 @@ export default function AccessGuard({ children }: AccessGuardProps) {
                 <input
                   type="password"
                   value={accessCode}
-                  onChange={(e) => setAccessCode(e.target.value)}
+                  onChange={handleInputChange}
                   placeholder="Enter access code"
                   className="input"
                   required
                   disabled={isVerifying}
+                  autoComplete="current-password"
                 />
               </div>
 
               {error && (
-                <div className="text-sm text-danger-600 bg-danger-50 p-3 rounded-lg">
+                <div className="text-sm text-danger-600 bg-danger-50 p-3 rounded-lg border border-danger-200">
                   {error}
                 </div>
               )}
